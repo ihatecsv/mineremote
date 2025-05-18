@@ -1,0 +1,5 @@
+*.json
+*.yml
+*.properties
+*.gradle
+*.bat

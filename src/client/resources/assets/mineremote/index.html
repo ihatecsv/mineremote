@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>MineRemote</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        :root{
+            --slot-size:min(64px,calc((100vw - 40px)/9 - 4px));
+            --gap:4px;
+            --bg-overlay:rgba(0,0,0,.7);
+            --slot-bg:rgba(34,34,34,.8);
+            --slot-border:#555;
+            --active-border:#fff;
+            --armor-slot-bg:rgba(42,42,42,.8);
+            --default-body-bg:#2c2c2c;
+            --dead-body-bg:#3d0000;
+        }
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{
+            margin:0;background:var(--default-body-bg);
+            font:14px/1.3 'Minecraft',monospace;color:#ddd;display:flex;flex-direction:column;align-items:center;justify-content:center;
+            min-height:100vh;width:100vw;transition:background-color .5s
+        }
+        body.dead{background-color:var(--dead-body-bg)}
+        h1{margin:16px 0;font-size:max(20px,min(4vw,32px));text-shadow:2px 2px 3px rgba(0,0,0,.7)}
+        .main-wrapper{display:flex;gap:20px;align-items:flex-start;width:calc(100vw - 20px);justify-content:center}
+        .inventory-container{
+            background:var(--bg-overlay);border:2px solid var(--slot-border);border-radius:5px;
+            width:min(100vw - 20px,900px);display:flex;flex-direction:column;padding:10px;gap:10px;position:relative;transition:opacity .5s
+        }
+        .inventory-container.dead{opacity:.15}
+        .death-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .5s;z-index:10}
+        .death-overlay.show{opacity:1}
+        .death-skull{font-size:120px;transform:translateY(-10px);text-shadow:0 0 15px #000}
+        .inventory-area,.stats-area{
+            background:rgba(40,40,40,.7);padding:10px;border:1px solid var(--slot-border);border-radius:3px;display:flex;flex-direction:column;gap:10px
+        }
+        .bars-top{display:flex;gap:10px}.bar-col{flex:1;display:flex;flex-direction:column;gap:6px}
+        .health-bar,.hunger-bar,.armor-bar,.saturation-bar,.xp-bar{width:100%;height:18px;border:1px solid var(--slot-border);position:relative;overflow:hidden}
+        .health-bar{background:#300}.health-fill{background:linear-gradient(to bottom,#f44,#c00)}
+        .hunger-bar{background:#331f00}.hunger-fill{background:linear-gradient(to bottom,#fc3,#c90)}
+        .armor-bar{background:#001933}.armor-fill{background:linear-gradient(to bottom,#5af,#1283d2)}
+        .saturation-bar{background:#143300}.saturation-fill{background:linear-gradient(to bottom,#8f8,#2c2)}
+        .xp-bar{background:#031}.xp-fill{background:linear-gradient(to bottom,#3f3,#0a0)}
+        .health-fill,.hunger-fill,.armor-fill,.saturation-fill,.xp-fill{height:100%;width:0;transition:width .3s}
+        .stat-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;text-shadow:1px 1px 2px #000;font-size:12px;white-space:nowrap}
+        .grid{display:grid;grid-gap:var(--gap);justify-content:center}
+        #armor-row{grid-template-columns:repeat(9,var(--slot-size));grid-template-rows:var(--slot-size)}
+        #main{grid-template-columns:repeat(9,var(--slot-size));grid-template-rows:repeat(3,var(--slot-size))}
+        #hotbar{grid-template-columns:repeat(9,var(--slot-size));grid-template-rows:var(--slot-size)}
+        .slot{width:var(--slot-size);height:var(--slot-size);border:1px solid var(--slot-border);background:var(--slot-bg);position:relative;cursor:pointer}
+        .slot.active-slot{border:2px solid var(--active-border)!important}
+        .armor-slot,.offhand-slot{border-color:#666;background:var(--armor-slot-bg)}
+        .empty-slot{background:transparent;border-color:transparent;cursor:default}
+        .slot:hover:not(.empty-slot):not(.toss-slot){background:#333;box-shadow:0 0 5px rgba(255,255,255,.3)}
+        .slot img,#cursor-item img{width:100%;height:100%;image-rendering:pixelated;user-select:none;-webkit-user-drag:none}
+        .cnt{position:absolute;bottom:2px;right:4px;font-size:max(10px,min(calc(var(--slot-size)/5),13px));text-shadow:0 0 2px #000,0 0 2px #000;color:#fff}
+        .toss-slot{border:2px dashed #c33;color:#c33;display:flex;align-items:center;justify-content:center;font-weight:bold;cursor:pointer;user-select:none;font-size:max(8px,min(calc(var(--slot-size)/6),12px));background:var(--slot-bg)}
+        .toss-slot:hover{background:#442828;box-shadow:0 0 5px rgba(255,85,85,.4)}
+        #cursor-item{position:fixed;pointer-events:none;width:var(--slot-size);height:var(--slot-size);display:none;z-index:1000}
+        #cursor-item .cnt{position:absolute;bottom:2px;right:4px;font-size:max(10px,min(calc(var(--slot-size)/5),13px));text-shadow:0 0 2px #000,0 0 2px #000;color:#fff}
+        .dev-toggle{position:fixed;top:10px;right:10px;padding:6px 10px;background:#444;color:#fff;border:none;border-radius:4px;cursor:pointer}
+        .dev-panel{
+            display:none;flex-direction:column;gap:6px;
+            background:rgba(40,40,40,.8);border:2px solid var(--slot-border);border-radius:5px;
+            padding:10px;width:300px;max-height:80vh;
+            overflow:auto;
+            resize:both;
+            min-width:200px;min-height:120px;
+        }
+        .dev-panel [contenteditable]{flex:1;width:100%;overflow:auto;background:#222;color:#fff;border:1px solid #666;font-family:monospace;font-size:12px;padding:6px;white-space:pre;outline:none}
+        .dev-panel button{padding:6px 10px;background:#286428;color:#fff;border:none;border-radius:4px;cursor:pointer}
+        @media(max-width:480px){
+            .inventory-container,.inventory-area,.stats-area{padding:5px}
+            h1{margin:10px 0}.death-skull{font-size:80px}
+            .dev-panel{
+                width:100%;max-height:40vh;
+                resize:both;overflow:auto;
+            }
+            .main-wrapper{flex-direction:column;align-items:center}
+        }
+        @media(max-height:600px){
+            h1{font-size:16px;margin:8px 0}.death-skull{font-size:60px}
+        }
+    </style>
+</head>
+<body>
+<h1>MineRemote</h1>
+<button id="dev-toggle" class="dev-toggle">NBT Editor</button>
+<div class="main-wrapper">
+    <div class="inventory-container">
+        <div class="death-overlay"><div class="death-skull">💀</div></div>
+        <div class="inventory-area">
+            <div id="armor-row" class="grid"></div>
+            <div id="main" class="grid"></div>
+            <div id="hotbar" class="grid"></div>
+        </div>
+        <div class="stats-area">
+            <div class="bars-top">
+                <div class="bar-col">
+                    <div class="armor-bar"><div class="armor-fill" id="armor-fill"></div><span class="stat-text" id="armor-text"></span></div>
+                    <div class="health-bar"><div class="health-fill" id="health-fill"></div><span class="stat-text" id="health-text"></span></div>
+                </div>
+                <div class="bar-col">
+                    <div class="saturation-bar"><div class="saturation-fill" id="sat-fill"></div><span class="stat-text" id="sat-text"></span></div>
+                    <div class="hunger-bar"><div class="hunger-fill" id="hunger-fill"></div><span class="stat-text" id="hunger-text"></span></div>
+                </div>
+            </div>
+            <div class="xp-bar"><div class="xp-fill" id="xp-fill"></div><span class="stat-text" id="xp-text"></span></div>
+        </div>
+    </div>
+    <div id="dev-panel" class="dev-panel">
+        <div id="nbt-editor" contenteditable="true"></div>
+        <button id="nbt-save">Apply</button>
+    </div>
+</div>
+<div id="cursor-item"></div>
+
+<script type="module">
+ const defaultTheme = {
+   punct: '#c586c0',
+   key: '#dcdcaa',
+   string: '#ce9178',
+   number: '#b5cea8',
+   bool: '#4ec9b0'
+ };
+
+ class Snbt {
+   static tokenize(src) {
+     const tokens = [];
+     let i = 0, len = src.length;
+     const push = (type, val) => tokens.push({ type, val });
+
+     while (i < len) {
+       const c = src[i];
+
+       if (/\s/.test(c)) {
+         let s = i;
+         while (i < len && /\s/.test(src[i])) i++;
+         push('ws', src.slice(s, i));
+         continue;
+       }
+
+       if (/[{}\[\]:;,]/.test(c)) {
+         push('punct', c);
+         i++;
+         continue;
+       }
+
+       if (c === '"' || c === `'`) {
+         const q = c;
+         let v = q;
+         i++;
+         while (i < len) {
+           const ch = src[i];
+           v += ch;
+           i++;
+           if (ch === '\\') {
+             v += src[i] || '';
+             i++;
+             continue;
+           }
+           if (ch === q) break;
+         }
+         push('string', v);
+         continue;
+       }
+
+       if (/[0-9+\-.]/.test(c)) {
+         let s = i;
+         while (i < len && /[0-9eE+\-.]/.test(src[i])) i++;
+         if (i < len && /[bslfdBSLFD]/.test(src[i])) i++;
+         push('number', src.slice(s, i));
+         continue;
+       }
+
+       if (/[A-Za-z_\-+.]/.test(c)) {
+         let s = i;
+         while (i < len && /[A-Za-z0-9_\-+.]/.test(src[i])) i++;
+         const w = src.slice(s, i);
+         push(w === 'true' || w === 'false' ? 'bool' : 'key', w);
+         continue;
+       }
+
+       push('punct', c);
+       i++;
+     }
+
+     return tokens;
+   }
+
+   static format(src, indentStr = '  ') {
+     const tks = Snbt.tokenize(src);
+     let out = '', indent = 0;
+     const nl = () => { out += '\n' + indentStr.repeat(indent); };
+
+     for (const t of tks) {
+       if (t.type === 'ws') continue;
+
+       switch (t.val) {
+         case '{':
+         case '[':
+           out += t.val;
+           indent++;
+           nl();
+           break;
+         case '}':
+         case ']':
+           indent--;
+           nl();
+           out += t.val;
+           break;
+         case ',':
+           out += ',';
+           nl();
+           break;
+         case ':':
+           out += ': ';
+           break;
+         default:
+           out += t.val;
+       }
+     }
+
+     return out;
+   }
+
+   static pack(src) {
+     return Snbt.tokenize(src)
+       .filter(t => t.type !== 'ws')
+       .map(t => t.val)
+       .join('');
+   }
+
+   static highlight(src, theme = defaultTheme) {
+     return Snbt.tokenize(src).map(t =>
+       t.type === 'ws' ? t : { ...t, color: theme[t.type] || null }
+     );
+   }
+
+   static toHtml(src, theme = defaultTheme) {
+     const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+     return Snbt.highlight(src, theme).map(t =>
+       t.type === 'ws' ? esc(t.val) : `<span style="color:${t.color}">${esc(t.val)}</span>`
+     ).join('');
+   }
+ }
+
+ const main = document.getElementById('main');
+ const hot = document.getElementById('hotbar');
+ const armorRow = document.getElementById('armor-row');
+ const cursorItem = document.getElementById('cursor-item');
+ const inventoryContainer = document.querySelector('.inventory-container');
+ const deathOverlay = document.querySelector('.death-overlay');
+ const body = document.body;
+ const devToggle = document.getElementById('dev-toggle');
+ const devPanel = document.getElementById('dev-panel');
+ const nbtEditor = document.getElementById('nbt-editor');
+ const nbtSave = document.getElementById('nbt-save');
+ let devActive = false, latestData = null;
+
+ const bars = {
+   health: { fill: document.getElementById('health-fill'), text: document.getElementById('health-text'), label: 'Health' },
+   armor: { fill: document.getElementById('armor-fill'), text: document.getElementById('armor-text'), label: 'Armor' },
+   hunger: { fill: document.getElementById('hunger-fill'), text: document.getElementById('hunger-text'), label: 'Hunger' },
+   sat: { fill: document.getElementById('sat-fill'), text: document.getElementById('sat-text'), label: 'Saturation' },
+   xp: { fill: document.getElementById('xp-fill'), text: document.getElementById('xp-text'), label: 'XP' }
+ };
+
+ const post = (url, body = {}) =>
+   fetch(url, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify(body)
+   })
+     .then(r => r.json())
+     .then(update)
+     .catch(console.error);
+
+ document.addEventListener('mousemove', e => {
+   if (cursorItem.style.display === 'block') {
+     const half = cursorItem.offsetWidth / 2;
+     cursorItem.style.left = (e.clientX - half) + 'px';
+     cursorItem.style.top = (e.clientY - half) + 'px';
+   }
+ });
+
+ function slotEl(i, s, cls = '') {
+   const d = document.createElement('div');
+   d.className = 'slot' + (cls ? ' ' + cls : '');
+
+   if (s) {
+     const img = document.createElement('img');
+     img.src = `/icon/${s.item.replace(':', '/')}.png`;
+     img.alt = s.item;
+     d.appendChild(img);
+
+     if (s.count > 1) {
+       const c = document.createElement('span');
+       c.className = 'cnt';
+       c.textContent = s.count;
+       d.appendChild(c);
+     }
+   }
+
+   d.onclick = () => post('/api/click', { slot: i, button: 0 });
+   d.oncontextmenu = e => {
+     e.preventDefault();
+     post('/api/click', { slot: i, button: 1 });
+   };
+
+   return d;
+ }
+
+ const emptySlotEl = () => {
+   const d = document.createElement('div');
+   d.className = 'slot empty-slot';
+   return d
+ };
+
+ function updateCursorItem(c) {
+   cursorItem.innerHTML = '';
+
+   if (c && c.item) {
+     const img = document.createElement('img');
+     img.src = `/icon/${c.item.replace(':', '/')}.png`;
+     img.alt = c.item;
+     cursorItem.appendChild(img);
+
+     if (c.count > 1) {
+       const cnt = document.createElement('span');
+       cnt.className = 'cnt';
+       cnt.textContent = c.count;
+       cursorItem.appendChild(cnt);
+     }
+
+     cursorItem.style.display = 'block';
+   } else {
+     cursorItem.style.display = 'none';
+   }
+ }
+
+ for (const k in bars) {
+   const bar = bars[k];
+   const node = bar.text.parentElement;
+
+   node.addEventListener('mouseenter', () => bar.text.textContent = bar.label);
+   node.addEventListener('mouseleave', () => bar.text.textContent = node.dataset.value || '');
+ }
+
+ function getCaretOffset(el) {
+   const sel = window.getSelection();
+
+   if (!sel.rangeCount) return 0;
+
+   const range = sel.getRangeAt(0).cloneRange();
+   range.selectNodeContents(el);
+   range.setEnd(sel.focusNode, sel.focusOffset);
+
+   return range.toString().length;
+ }
+
+ function setCaretOffset(el, offset) {
+   const range = document.createRange();
+   let currentChar = 0;
+   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+   let node;
+
+   while ((node = walker.nextNode())) {
+     const nextChar = currentChar + node.textContent.length;
+
+     if (offset <= nextChar) {
+       range.setStart(node, offset - currentChar);
+       range.collapse(true);
+       const sel = window.getSelection();
+       sel.removeAllRanges();
+       sel.addRange(range);
+       return;
+     }
+
+     currentChar = nextChar;
+   }
+
+   range.selectNodeContents(el);
+   range.collapse(false);
+   const sel = window.getSelection();
+   sel.removeAllRanges();
+   sel.addRange(range);
+ }
+
+ const renderNbtEditor = src => {
+   nbtEditor.innerHTML = Snbt.toHtml(Snbt.format(src));
+ };
+
+ const getEditorText = () => nbtEditor.textContent;
+
+ let highlightTimer = null;
+
+ nbtEditor.addEventListener('input', () => {
+   const raw = getEditorText();
+   const caret = getCaretOffset(nbtEditor);
+
+   clearTimeout(highlightTimer);
+   highlightTimer = setTimeout(() => {
+     nbtEditor.innerHTML = Snbt.toHtml(raw);
+     setCaretOffset(nbtEditor, caret);
+   }, 0);
+ });
+
+ function updateDev() {
+   if (!devActive || !latestData) return;
+
+   const sel = latestData.slots.find(x => x.slot === latestData.sel);
+   if (!sel) {
+     nbtEditor.innerHTML = '';
+     return;
+   }
+
+   renderNbtEditor(sel.nbt || '{}');
+ }
+
+ nbtSave.onclick = () => {
+   if (!latestData) return;
+
+   const sel = latestData.slots.find(x => x.slot === latestData.sel);
+   if (!sel) return;
+
+   const packed = Snbt.pack(getEditorText().trim());
+   const item = `${sel.item}${packed && packed !== '{}' ? packed : ''}`;
+   const cmd = `item replace entity @s weapon.mainhand with ${item} ${sel.count}`;
+
+   post('/api/command', { cmd });
+ };
+
+ devToggle.onclick = () => {
+   devActive = !devActive;
+   devPanel.style.display = devActive ? 'flex' : 'none';
+   devToggle.style.background = devActive ? '#286428' : '#444';
+   updateDev();
+ };
+
+ function update(data) {
+   latestData = data;
+   const map = new Map(data.slots.map(x => [x.slot, x]));
+
+   armorRow.innerHTML = '';
+   for (let i = 39; i >= 36; i--) armorRow.appendChild(slotEl(i, map.get(i), 'armor-slot'));
+   for (let i = 0; i < 3; i++) armorRow.appendChild(emptySlotEl());
+
+   if (data.carried && data.carried.item) {
+     const toss = document.createElement('div');
+     toss.className = 'slot toss-slot';
+     toss.textContent = 'TOSS';
+     toss.onclick = () => post('/api/toss');
+     toss.oncontextmenu = e => e.preventDefault();
+     armorRow.appendChild(toss);
+   } else {
+     armorRow.appendChild(emptySlotEl());
+   }
+
+   armorRow.appendChild(slotEl(40, map.get(40), 'offhand-slot'));
+
+   main.innerHTML = '';
+   for (let i = 9; i < 36; i++) main.appendChild(slotEl(i, map.get(i)));
+
+   hot.innerHTML = '';
+   for (let i = 0; i < 9; i++) hot.appendChild(slotEl(i, map.get(i), i === data.sel ? 'active-slot' : ''));
+
+   const hpPct = Math.round(data.health) / Math.round(data.maxHealth) * 100;
+   bars.health.fill.style.width = `${hpPct}%`;
+   bars.health.text.textContent = `${Math.round(data.health)}/${Math.round(data.maxHealth)}`;
+   bars.health.text.parentElement.dataset.value = bars.health.text.textContent;
+   updateDeathState(data.health);
+
+   const armorPct = data.armor / 20 * 100;
+   bars.armor.fill.style.width = `${armorPct}%`;
+   bars.armor.text.textContent = `${data.armor}/20`;
+   bars.armor.text.parentElement.dataset.value = bars.armor.text.textContent;
+
+   const hunPct = data.hunger / 20 * 100;
+   bars.hunger.fill.style.width = `${hunPct}%`;
+   bars.hunger.text.textContent = `${data.hunger}/20`;
+   bars.hunger.text.parentElement.dataset.value = bars.hunger.text.textContent;
+
+   const satPct = data.saturation / 20 * 100;
+   bars.sat.fill.style.width = `${satPct}%`;
+   bars.sat.text.textContent = `${Math.round(data.saturation)}/20`;
+   bars.sat.text.parentElement.dataset.value = bars.sat.text.textContent;
+
+   const xpPct = Math.round(data.expProgress * 100);
+   bars.xp.fill.style.width = `${xpPct}%`;
+   bars.xp.text.textContent = `Level ${data.expLevel} (${xpPct}%)`;
+   bars.xp.text.parentElement.dataset.value = bars.xp.text.textContent;
+
+   updateCursorItem(data.carried);
+   updateDev();
+ }
+
+ function updateDeathState(health) {
+   const dead = health <= 0;
+   inventoryContainer.classList.toggle('dead', dead);
+   deathOverlay.classList.toggle('show', dead);
+   body.classList.toggle('dead', dead);
+ }
+
+ fetch('/api/inventory').then(r => r.json()).then(update);
+
+ window.addEventListener('resize', () =>
+   document.documentElement.style.setProperty('--slot-size', `min(64px, calc((100vw - 40px)/9 - 4px))`)
+ );
+
+ (function live() {
+   try {
+     const es = new EventSource('/api/events');
+     es.onmessage = e => update(JSON.parse(e.data));
+     es.onerror = () => {
+       es.close();
+       console.warn('EventSource failed, falling back to polling.');
+       setInterval(
+         () => fetch('/api/inventory')
+           .then(r => r.json())
+           .then(update)
+           .catch(err => console.error('Polling failed:', err)),
+         1000
+       );
+     };
+   } catch (_) {
+     console.warn('EventSource setup failed, falling back to polling.');
+     setInterval(
+       () => fetch('/api/inventory')
+         .then(r => r.json())
+         .then(update)
+         .catch(err => console.error('Polling failed:', err)),
+       1000
+     );
+   }
+ })();
+</script>
+</body>
+</html>
